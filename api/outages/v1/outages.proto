@@ -1,0 +1,26 @@
+syntax = "proto3";
+package outages.v1;
+
+option go_package = "outages-bot/gen/outages/v1;outagesv1";
+
+service OutageService {
+  // Fetches a fresh upstream snapshot without persistent mutations. Upstream
+  // failures return UNAVAILABLE, malformed snapshots DATA_LOSS, and timeouts
+  // DEADLINE_EXCEEDED. Invalid rows are omitted with a warning; a nonempty
+  // snapshot with no valid rows returns DATA_LOSS.
+  rpc FetchSnapshot(FetchSnapshotRequest) returns (FetchSnapshotResponse);
+}
+message FetchSnapshotRequest {}
+message Outage {
+  // Provider timestamps are kept as supplied for display.
+  string start_date = 1;
+  string end_date = 2;
+  string city = 3;
+  int32 street_id = 4;
+  string street_name = 5;
+  repeated string buildings = 6;
+  string comment = 7;
+}
+message FetchSnapshotResponse {
+  repeated Outage outages = 1;
+}

@@ -1,0 +1,6 @@
+/.cache/
+/bin/
+/data/
+/.env
+/.DS_Store
+/.idea/

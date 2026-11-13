@@ -1,0 +1,21 @@
+syntax = "proto3";
+package notifications.v1;
+
+option go_package = "outages-bot/gen/notifications/v1;notificationsv1";
+
+service NotificationService {
+  // Runs synchronously. Concurrent runs fail with FAILED_PRECONDITION.
+  // Successful deliveries are acknowledged incrementally; a failed RPC may
+  // have sent messages. Do not automatically retry this side-effecting method.
+  // Telegram limits return RESOURCE_EXHAUSTED and RetryInfo when available;
+  // transport failures return UNAVAILABLE. Cancellation stops further sends.
+  rpc RunOnce(RunOnceRequest) returns (RunOnceResponse);
+}
+message RunOnceRequest {}
+message RunOnceResponse {
+  int32 subscribers = 1;
+  int32 matched = 2;
+  int32 sent = 3;
+  int32 skipped = 4;
+  int32 unsubscribed = 5;
+}

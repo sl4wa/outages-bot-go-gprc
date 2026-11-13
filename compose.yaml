@@ -1,0 +1,52 @@
+services:
+  subscriptions:
+    build:
+      context: .
+      args: { SERVICE: subscriptions }
+    environment:
+      SUBSCRIPTIONS_LISTEN: 0.0.0.0:50051
+      USERS_DIR: /data/users
+    ports: ["127.0.0.1:50051:50051"]
+    volumes: ["users:/data"]
+    stop_grace_period: 20s
+
+  outages:
+    build:
+      context: .
+      args: { SERVICE: outages }
+    environment:
+      OUTAGES_LISTEN: 0.0.0.0:50052
+      OUTAGE_API_URL: ${OUTAGE_API_URL:-https://power-api.loe.lviv.ua/api/pw_accidents?pagination=false&otg.id=28&city.id=693}
+    ports: ["127.0.0.1:50052:50052"]
+    stop_grace_period: 20s
+
+  notifier:
+    profiles: [telegram]
+    build:
+      context: .
+      args: { SERVICE: notifier }
+    environment:
+      NOTIFIER_LISTEN: 0.0.0.0:50053
+      SUBSCRIPTIONS_ADDR: subscriptions:50051
+      OUTAGES_ADDR: outages:50052
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_API_URL: ${TELEGRAM_API_URL:-https://api.telegram.org}
+      NOTIFY_INTERVAL: ${NOTIFY_INTERVAL:-1m}
+    depends_on: [subscriptions, outages]
+    ports: ["127.0.0.1:50053:50053"]
+    stop_grace_period: 20s
+
+  bot:
+    profiles: [telegram]
+    build:
+      context: .
+      args: { SERVICE: bot }
+    environment:
+      SUBSCRIPTIONS_ADDR: subscriptions:50051
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_API_URL: ${TELEGRAM_API_URL:-https://api.telegram.org}
+    depends_on: [subscriptions]
+    stop_grace_period: 20s
+
+volumes:
+  users:

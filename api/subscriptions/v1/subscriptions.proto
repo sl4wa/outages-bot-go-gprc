@@ -1,0 +1,83 @@
+syntax = "proto3";
+package subscriptions.v1;
+
+option go_package = "outages-bot/gen/subscriptions/v1;subscriptionsv1";
+
+service SubscriptionService {
+  // Case-insensitive exact match, then substring search (at most 30 results).
+  // Empty queries return INVALID_ARGUMENT; reads have no side effects.
+  rpc SearchStreets(SearchStreetsRequest) returns (SearchStreetsResponse);
+  // Returns NOT_FOUND when the chat has no subscription.
+  rpc GetSubscription(GetSubscriptionRequest) returns (Subscription);
+  // Replaces the address and clears delivery history. Invalid addresses return
+  // INVALID_ARGUMENT with BadRequest field details. Do not automatically retry.
+  rpc SetSubscription(SetSubscriptionRequest) returns (Subscription);
+  // Deletes unconditionally unless expected is provided. Missing or mismatched
+  // subscriptions return deleted=false. An unconditional retry can delete a
+  // later replacement; use a guard when replaying a delivery-side mutation.
+  rpc DeleteSubscription(DeleteSubscriptionRequest) returns (DeleteSubscriptionResponse);
+  // A finite snapshot ordered by chat_id. The snapshot is buffered in memory;
+  // no lock is held while streaming, and cancellation stops the transfer.
+  rpc ListSubscriptions(ListSubscriptionsRequest) returns (stream Subscription);
+  // Records delivery only when expected matches. Stale/missing subscriptions
+  // return applied=false. Repeating the same receipt is safe.
+  rpc MarkNotified(MarkNotifiedRequest) returns (MarkNotifiedResponse);
+}
+
+message Street {
+  int32 id = 1;
+  string name = 2;
+}
+message Address {
+  Street street = 1;
+  string building = 2;
+}
+message Notification {
+  string start_date = 1;
+  string end_date = 2;
+  string comment = 3;
+}
+message Subscription {
+  int64 chat_id = 1;
+  Address address = 2;
+  // New subscription incarnation on each replacement.
+  string generation = 3;
+  Notification last_notification = 4;
+}
+message SearchStreetsRequest {
+  string query = 1;
+}
+message SearchStreetsResponse {
+  repeated Street streets = 1;
+  bool too_many = 2;
+}
+message GetSubscriptionRequest {
+  int64 chat_id = 1;
+}
+message SetSubscriptionRequest {
+  int64 chat_id = 1;
+  int32 street_id = 2;
+  string building = 3;
+}
+// Presence distinguishes a guarded delete from an unconditional delete.
+message SubscriptionGuard {
+  string generation = 1;
+  reserved 2, 3;
+  reserved "street_id", "building";
+}
+message DeleteSubscriptionRequest {
+  int64 chat_id = 1;
+  SubscriptionGuard expected = 2;
+}
+message DeleteSubscriptionResponse {
+  bool deleted = 1;
+}
+message ListSubscriptionsRequest {}
+message MarkNotifiedRequest {
+  int64 chat_id = 1;
+  SubscriptionGuard expected = 2;
+  Notification notification = 3;
+}
+message MarkNotifiedResponse {
+  bool applied = 1;
+}

@@ -1,0 +1,7 @@
+.git
+.env
+.cache
+bin
+data
+.idea
+**/*_test.go
