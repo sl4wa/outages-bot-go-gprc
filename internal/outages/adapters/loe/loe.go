@@ -1,74 +1,70 @@
-// Package outages owns the external LOE feed integration. It never reads
-// subscription files or calls Telegram.
-package outages
+// Package loe adapts the external LOE HTTP feed to outage domain values.
+package loe
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
-	outagesv1 "outages-bot/gen/outages/v1"
-
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+	"outages-bot/internal/outages/application/core/domain"
+	"outages-bot/internal/outages/ports"
 )
 
 const maxFeedBytes = 8 << 20
 
-type Server struct {
-	outagesv1.UnimplementedOutageServiceServer
+type Adapter struct {
 	url    string
 	client *http.Client
 }
 
-func New(url string, client *http.Client) *Server {
+func NewAdapter(url string, client *http.Client) *Adapter {
 	if client == nil {
 		client = &http.Client{Timeout: 20 * time.Second}
 	}
-	return &Server{url: url, client: client}
+	return &Adapter{url: url, client: client}
 }
 
-// FetchSnapshot retrieves a fresh outage snapshot for every call.
-func (s *Server) FetchSnapshot(ctx context.Context, _ *outagesv1.FetchSnapshotRequest) (*outagesv1.FetchSnapshotResponse, error) {
-	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.url, nil)
+var _ ports.FeedPort = (*Adapter)(nil)
+
+func (a *Adapter) Fetch(ctx context.Context) ([]domain.Outage, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.url, nil)
 	if err != nil {
-		return nil, status.Error(codes.Internal, "invalid outage API configuration")
+		return nil, errors.New("invalid outage API configuration")
 	}
 	req.Header.Set("Accept", "application/json")
-	res, err := s.client.Do(req)
+	res, err := a.client.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, status.FromContextError(ctx.Err()).Err()
+			return nil, ctx.Err()
 		}
-		return nil, status.Error(codes.Unavailable, "outage API request failed")
+		return nil, &domain.FeedError{Cause: domain.ErrFeedUnavailable, Message: "outage API request failed"}
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		return nil, status.Errorf(codes.Unavailable, "outage API returned HTTP %d", res.StatusCode)
+		return nil, &domain.FeedError{Cause: domain.ErrFeedUnavailable, Message: fmt.Sprintf("outage API returned HTTP %d", res.StatusCode)}
 	}
 	body, err := io.ReadAll(io.LimitReader(res.Body, maxFeedBytes+1))
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, status.FromContextError(ctx.Err()).Err()
+			return nil, ctx.Err()
 		}
-		return nil, status.Error(codes.Unavailable, "reading outage API response failed")
+		return nil, &domain.FeedError{Cause: domain.ErrFeedUnavailable, Message: "reading outage API response failed"}
 	}
 	if len(body) > maxFeedBytes {
-		return nil, status.Error(codes.ResourceExhausted, "outage API response exceeds 8 MiB")
+		return nil, &domain.FeedError{Cause: domain.ErrSnapshotTooLarge, Message: "outage API response exceeds 8 MiB"}
 	}
 	rows, err := normalize(body)
 	if err != nil {
-		return nil, status.Error(codes.DataLoss, "outage API returned an invalid snapshot")
+		return nil, &domain.FeedError{Cause: domain.ErrInvalidSnapshot, Message: "outage API returned an invalid snapshot"}
 	}
-	return &outagesv1.FetchSnapshotResponse{Outages: rows}, nil
+	return rows, nil
 }
 
 // The API returns integer street IDs and comma-separated building names.
@@ -89,7 +85,7 @@ type rawOutage struct {
 
 func clean(value string) string { return strings.Join(strings.Fields(value), " ") }
 
-func normalize(body []byte) ([]*outagesv1.Outage, error) {
+func normalize(body []byte) ([]domain.Outage, error) {
 	body = bytes.TrimSpace(body)
 	// The provider may return a JSON-LD collection even for application/json.
 	if len(body) > 0 && body[0] == '{' {
@@ -108,22 +104,22 @@ func normalize(body []byte) ([]*outagesv1.Outage, error) {
 	if err := json.Unmarshal(body, &members); err != nil {
 		return nil, err
 	}
-	result := make([]*outagesv1.Outage, 0, len(members))
+	result := make([]domain.Outage, 0, len(members))
 	for _, member := range members {
 		var raw rawOutage
 		if json.Unmarshal(member, &raw) != nil {
 			continue
 		}
-		row := &outagesv1.Outage{
+		row := domain.Outage{
 			StartDate: clean(raw.Start), EndDate: clean(raw.End), City: clean(raw.City.Name),
-			StreetId: raw.Street.ID, StreetName: clean(raw.Street.Name), Comment: clean(raw.Comment),
+			StreetID: raw.Street.ID, StreetName: clean(raw.Street.Name), Comment: clean(raw.Comment),
 		}
 		for building := range strings.SplitSeq(raw.Buildings, ",") {
 			if building = strings.TrimSpace(building); building != "" {
 				row.Buildings = append(row.Buildings, building)
 			}
 		}
-		if row.StreetId <= 0 || row.StartDate == "" || row.EndDate == "" || row.StreetName == "" || len(row.Buildings) == 0 {
+		if row.StreetID <= 0 || row.StartDate == "" || row.EndDate == "" || row.StreetName == "" || len(row.Buildings) == 0 {
 			continue
 		}
 		result = append(result, row)

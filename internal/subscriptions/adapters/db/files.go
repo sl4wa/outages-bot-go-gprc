@@ -1,4 +1,4 @@
-package subscriptions
+package db
 
 import (
 	"os"

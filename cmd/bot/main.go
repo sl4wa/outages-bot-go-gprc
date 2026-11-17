@@ -8,7 +8,9 @@ import (
 	"syscall"
 
 	subscriptionsv1 "outages-bot/gen/subscriptions/v1"
-	"outages-bot/internal/bot"
+	"outages-bot/internal/bot/adapters/subscriptions"
+	telegramadapter "outages-bot/internal/bot/adapters/telegram"
+	"outages-bot/internal/bot/application/core/api"
 	"outages-bot/internal/platform/config"
 	"outages-bot/internal/platform/rpc"
 	"outages-bot/internal/platform/telegram"
@@ -32,6 +34,8 @@ func run() error {
 		return err
 	}
 	defer conn.Close()
-	service := bot.New(subscriptionsv1.NewSubscriptionServiceClient(conn), transport)
-	return service.Run(ctx)
+	subscriptionAdapter := subscriptions.NewAdapter(subscriptionsv1.NewSubscriptionServiceClient(conn))
+	application := api.NewApplication(subscriptionAdapter)
+	telegramAdapter := telegramadapter.NewAdapter(application, transport)
+	return telegramAdapter.Run(ctx)
 }

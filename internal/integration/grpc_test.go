@@ -14,9 +14,18 @@ import (
 	nv1 "outages-bot/gen/notifications/v1"
 	ov1 "outages-bot/gen/outages/v1"
 	sv1 "outages-bot/gen/subscriptions/v1"
-	"outages-bot/internal/notifier"
-	"outages-bot/internal/outages"
-	"outages-bot/internal/subscriptions"
+	notifiergrpc "outages-bot/internal/notifier/adapters/grpc"
+	notifieroutages "outages-bot/internal/notifier/adapters/outages"
+	notifiersubscriptions "outages-bot/internal/notifier/adapters/subscriptions"
+	notifiertelegram "outages-bot/internal/notifier/adapters/telegram"
+	notifierapi "outages-bot/internal/notifier/application/core/api"
+	outagegrpc "outages-bot/internal/outages/adapters/grpc"
+	"outages-bot/internal/outages/adapters/loe"
+	outageapi "outages-bot/internal/outages/application/core/api"
+	"outages-bot/internal/subscriptions/adapters/catalog"
+	"outages-bot/internal/subscriptions/adapters/db"
+	subscriptiongrpc "outages-bot/internal/subscriptions/adapters/grpc"
+	subscriptionapi "outages-bot/internal/subscriptions/application/core/api"
 
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
@@ -44,11 +53,18 @@ func serve(t *testing.T, register func(*grpc.Server)) (*grpc.ClientConn, func())
 
 func subscriptionClient(t *testing.T, dir string) (sv1.SubscriptionServiceClient, func()) {
 	t.Helper()
-	service, err := subscriptions.New(dir)
+	repository, err := db.NewAdapter(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	conn, stop := serve(t, func(s *grpc.Server) { sv1.RegisterSubscriptionServiceServer(s, service) })
+	streets, err := catalog.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	application := subscriptionapi.NewApplication(repository, streets)
+	conn, stop := serve(t, func(s *grpc.Server) {
+		sv1.RegisterSubscriptionServiceServer(s, subscriptiongrpc.NewAdapter(application))
+	})
 	return sv1.NewSubscriptionServiceClient(conn), stop
 }
 
@@ -62,10 +78,20 @@ func (fn sendFunc) Send(ctx context.Context, id int64, text string) error { retu
 
 func outageClient(t *testing.T, transport roundTripFunc) ov1.OutageServiceClient {
 	t.Helper()
+	feedAdapter := loe.NewAdapter("https://outages.example.invalid/", &http.Client{Transport: transport})
+	application := outageapi.NewApplication(feedAdapter)
 	conn, _ := serve(t, func(s *grpc.Server) {
-		ov1.RegisterOutageServiceServer(s, outages.New("https://outages.example.invalid/", &http.Client{Transport: transport}))
+		ov1.RegisterOutageServiceServer(s, outagegrpc.NewAdapter(application))
 	})
 	return ov1.NewOutageServiceClient(conn)
+}
+
+func notificationAdapter(subscriptions sv1.SubscriptionServiceClient, outages ov1.OutageServiceClient, sender notifiertelegram.Client) *notifiergrpc.Adapter {
+	subscriptionAdapter := notifiersubscriptions.NewAdapter(subscriptions)
+	outageAdapter := notifieroutages.NewAdapter(outages)
+	senderAdapter := notifiertelegram.NewAdapter(sender)
+	application := notifierapi.NewApplication(subscriptionAdapter, outageAdapter, senderAdapter)
+	return notifiergrpc.NewAdapter(application)
 }
 
 func TestSubscriptionsOverGRPC(t *testing.T) {
@@ -176,7 +202,7 @@ func TestNotificationProgressOverGRPC(t *testing.T) {
 		return nil
 	})
 	conn, _ := serve(t, func(s *grpc.Server) {
-		nv1.RegisterNotificationServiceServer(s, notifier.New(subs, feed, sender))
+		nv1.RegisterNotificationServiceServer(s, notificationAdapter(subs, feed, sender))
 	})
 	client := nv1.NewNotificationServiceClient(conn)
 	if _, err := client.RunOnce(ctx, &nv1.RunOnceRequest{}); status.Code(err) != codes.Unavailable {
@@ -207,7 +233,7 @@ func TestCancellationReachesUpstream(t *testing.T) {
 	})
 	subs, _ := subscriptionClient(t, t.TempDir())
 	conn, _ := serve(t, func(s *grpc.Server) {
-		nv1.RegisterNotificationServiceServer(s, notifier.New(subs, feed, sendFunc(func(context.Context, int64, string) error {
+		nv1.RegisterNotificationServiceServer(s, notificationAdapter(subs, feed, sendFunc(func(context.Context, int64, string) error {
 			t.Error("canceled fetch must not send a notification")
 			return nil
 		})))

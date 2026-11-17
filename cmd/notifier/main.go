@@ -12,7 +12,12 @@ import (
 	notificationsv1 "outages-bot/gen/notifications/v1"
 	outagesv1 "outages-bot/gen/outages/v1"
 	subscriptionsv1 "outages-bot/gen/subscriptions/v1"
-	"outages-bot/internal/notifier"
+	grpcadapter "outages-bot/internal/notifier/adapters/grpc"
+	"outages-bot/internal/notifier/adapters/outages"
+	"outages-bot/internal/notifier/adapters/scheduler"
+	"outages-bot/internal/notifier/adapters/subscriptions"
+	telegramadapter "outages-bot/internal/notifier/adapters/telegram"
+	"outages-bot/internal/notifier/application/core/api"
 	"outages-bot/internal/platform/config"
 	"outages-bot/internal/platform/rpc"
 	"outages-bot/internal/platform/telegram"
@@ -45,15 +50,20 @@ func run() error {
 		return err
 	}
 	defer outageConn.Close()
-	service := notifier.New(subscriptionsv1.NewSubscriptionServiceClient(subConn), outagesv1.NewOutageServiceClient(outageConn), transport)
+	subscriptionAdapter := subscriptions.NewAdapter(subscriptionsv1.NewSubscriptionServiceClient(subConn))
+	outageAdapter := outages.NewAdapter(outagesv1.NewOutageServiceClient(outageConn))
+	senderAdapter := telegramadapter.NewAdapter(transport)
+	application := api.NewApplication(subscriptionAdapter, outageAdapter, senderAdapter)
+	grpcAdapter := grpcadapter.NewAdapter(application)
+	schedulerAdapter := scheduler.NewAdapter(application)
 	server := rpc.NewServer()
-	notificationsv1.RegisterNotificationServiceServer(server, service)
+	notificationsv1.RegisterNotificationServiceServer(server, grpcAdapter)
 	listener, err := net.Listen("tcp", config.String("NOTIFIER_LISTEN", "127.0.0.1:50053"))
 	if err != nil {
 		return err
 	}
 	loopDone := make(chan struct{})
-	go func() { defer close(loopDone); service.Run(ctx, interval) }()
+	go func() { defer close(loopDone); schedulerAdapter.Run(ctx, interval) }()
 	err = rpc.ServeListener(ctx, listener, server)
 	stop()
 	// Canceled runs finish any in-flight delivery acknowledgment before exit.

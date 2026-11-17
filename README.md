@@ -18,6 +18,30 @@ codes and error details, interceptors, health checks, reflection, and graceful s
 Contracts live in `api/`, generated code in `gen/`, services in `internal/`, and
 entry points in `cmd/`.
 
+## Architecture
+
+Each service separates its application from external systems using ports and adapters:
+
+```text
+internal/<service>/
+  application/core/
+    domain/            Domain models and rules
+    api/               Application use cases
+  ports/               Application and dependency interfaces
+  adapters/            gRPC, HTTP, storage, or Telegram implementations
+```
+
+The gRPC adapters translate protobuf messages and status codes. Application code
+uses domain values and interfaces; it has no gRPC or protobuf imports.
+Entry points in `cmd/` construct the adapters and inject them into applications.
+Shared configuration, gRPC server lifecycle, and Telegram HTTP code live in
+`internal/platform/`.
+
+For example, `SetSubscription` enters through the subscriptions gRPC adapter,
+calls the application through `APIPort`, and persists through `DBPort` using the
+JSON storage adapter. The notifier's gRPC handler and scheduler both invoke
+the same application, which calls subscriptions and outages through client adapters.
+
 ## Run with Docker
 
 Install Docker with Compose, then create the configuration:
