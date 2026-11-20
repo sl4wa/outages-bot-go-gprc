@@ -8,9 +8,10 @@ flowchart LR
     Bot["Telegram bot"] -->|gRPC| Subscriptions["Subscriptions :50051"]
     Notifier["Notifier :50053"] -->|gRPC| Subscriptions
     Notifier -->|gRPC| Outages["Outages :50052"]
+    Notifier -->|gRPC| Schedules["Schedules :50054"]
 ```
 
-Outages calls the LOE API over HTTP. The bot and notifier call the Telegram API
+Outages and Schedules call the LOE APIs over HTTP. The bot and notifier call the Telegram API
 over HTTP.
 
 Demonstrates unary and server-streaming RPCs, deadlines and cancellation, status
@@ -50,7 +51,7 @@ Install Docker with Compose, then create the configuration:
 cp .env.example .env
 ```
 
-Set `TELEGRAM_BOT_TOKEN` in `.env` and start all four services:
+Set `TELEGRAM_BOT_TOKEN` in `.env` and start all five services:
 
 ```sh
 docker compose --profile telegram up --build -d
@@ -90,6 +91,9 @@ grpcurl -plaintext -d '{}' \
 grpcurl -plaintext -max-time 25 -d '{}' \
   localhost:50052 outages.v1.OutageService/FetchSnapshot
 
+grpcurl -plaintext -max-time 25 -d '{}' \
+  localhost:50054 schedules.v1.ScheduleService/FetchSchedules
+
 grpcurl -plaintext -max-time 1800 -d '{}' \
   localhost:50053 notifications.v1.NotificationService/RunOnce
 ```
@@ -107,8 +111,8 @@ make build
 make test
 ```
 
-Three gRPC integration tests cover subscription RPCs, notification coordination,
-and cancellation. They need no external services or Telegram token.
+Four gRPC integration tests cover subscription RPCs, notification coordination,
+schedule broadcasts, and cancellation. They need no external services or Telegram token.
 
 Generated sources are committed. To edit contracts, install `protoc`
 (`brew install protobuf` on macOS), then run:
@@ -126,6 +130,10 @@ This installs pinned Go generators into `.cache/bin/` and regenerates `gen/`.
 - Building text is stored as entered and matched exactly against the feed.
 - If any current outage for an address matches its last delivered notification,
   the address is skipped. Otherwise the first matching outage is sent.
+- Besides outage matching, the notifier polls Schedules every `SCHEDULE_INTERVAL`
+  (default 15m, `0` disables) and broadcasts changes to today's or tomorrow's
+  schedule to every subscriber. It remembers the last schedules in memory, so the
+  first poll after a start sends nothing. Subscribers who blocked the bot are removed.
 - Bot conversations reset on restart. A crash between sending and recording a
   notification can cause a duplicate.
 - Each process runs as a single instance. gRPC uses plaintext for local development.

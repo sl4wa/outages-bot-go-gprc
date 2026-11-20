@@ -13,15 +13,21 @@ import (
 
 	nv1 "outages-bot/gen/notifications/v1"
 	ov1 "outages-bot/gen/outages/v1"
+	scv1 "outages-bot/gen/schedules/v1"
 	sv1 "outages-bot/gen/subscriptions/v1"
 	notifiergrpc "outages-bot/internal/notifier/adapters/grpc"
 	notifieroutages "outages-bot/internal/notifier/adapters/outages"
+	notifierschedules "outages-bot/internal/notifier/adapters/schedules"
 	notifiersubscriptions "outages-bot/internal/notifier/adapters/subscriptions"
 	notifiertelegram "outages-bot/internal/notifier/adapters/telegram"
 	notifierapi "outages-bot/internal/notifier/application/core/api"
 	outagegrpc "outages-bot/internal/outages/adapters/grpc"
 	"outages-bot/internal/outages/adapters/loe"
 	outageapi "outages-bot/internal/outages/application/core/api"
+	"outages-bot/internal/platform/telegram"
+	schedulegrpc "outages-bot/internal/schedules/adapters/grpc"
+	scheduleloe "outages-bot/internal/schedules/adapters/loe"
+	scheduleapi "outages-bot/internal/schedules/application/core/api"
 	"outages-bot/internal/subscriptions/adapters/catalog"
 	"outages-bot/internal/subscriptions/adapters/db"
 	subscriptiongrpc "outages-bot/internal/subscriptions/adapters/grpc"
@@ -261,5 +267,52 @@ func TestCancellationReachesUpstream(t *testing.T) {
 	case <-canceled:
 	case <-time.After(3 * time.Second):
 		t.Fatal("cancellation did not cross the downstream RPC and HTTP request")
+	}
+}
+
+type scheduleSender struct{ sent map[int64]string }
+
+func (s scheduleSender) Send(_ context.Context, id int64, text string) error {
+	if id == 2 {
+		return &telegram.Error{StatusCode: http.StatusForbidden}
+	}
+	s.sent[id] = text
+	return nil
+}
+
+func TestScheduleBroadcastOverGRPC(t *testing.T) {
+	day := time.Now().Format("02.01.2006")
+	body := `{"hydra:member":[{"menuItems":[{"id":1,"rawHtml":"<p>Графік погодинних відключень на ` + day + `</p><p>Інформація станом на 08:48 ` + day + `</p><p>Група 1.1. 10:00-12:00</p>"}]}]}`
+	feed := scheduleloe.NewAdapter("https://schedules.example.invalid/", &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: http.Header{}}, nil
+	})})
+	conn, _ := serve(t, func(s *grpc.Server) {
+		scv1.RegisterScheduleServiceServer(s, schedulegrpc.NewAdapter(scheduleapi.NewApplication(feed)))
+	})
+	subs, _ := subscriptionClient(t, t.TempDir())
+	ctx := context.Background()
+	for _, chat := range []int64{1, 2} {
+		if _, err := subs.SetSubscription(ctx, &sv1.SetSubscriptionRequest{ChatId: chat, StreetId: 6458, Building: "13a"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sender := scheduleSender{sent: map[int64]string{}}
+	application := notifierapi.NewScheduleApplication(notifierschedules.NewAdapter(scv1.NewScheduleServiceClient(conn)),
+		notifiersubscriptions.NewAdapter(subs), notifiertelegram.NewAdapter(sender), time.Local)
+	if err := application.CheckSchedules(ctx); err != nil || len(sender.sent) != 0 {
+		t.Fatalf("first check must only record schedules: %v %v", sender.sent, err)
+	}
+	body = strings.Replace(body, "10:00-12:00", "11:00-13:00", 1)
+	if err := application.CheckSchedules(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := sender.sent[1]; !strings.Contains(got, "<b>Графік відключень на сьогодні</b>") || !strings.Contains(got, "11:00-13:00") {
+		t.Fatalf("subscriber did not receive the changed schedule: %q", got)
+	}
+	if _, err := subs.GetSubscription(ctx, &sv1.GetSubscriptionRequest{ChatId: 2}); status.Code(err) != codes.NotFound {
+		t.Fatalf("blocked subscriber must be removed: %v", err)
+	}
+	if _, err := subs.GetSubscription(ctx, &sv1.GetSubscriptionRequest{ChatId: 1}); err != nil {
+		t.Fatalf("other subscriber must remain: %v", err)
 	}
 }

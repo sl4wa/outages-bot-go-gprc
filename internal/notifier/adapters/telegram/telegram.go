@@ -22,7 +22,11 @@ var _ ports.SenderPort = (*Adapter)(nil)
 func NewAdapter(client Client) *Adapter { return &Adapter{client: client} }
 
 func (a *Adapter) Send(ctx context.Context, chatID int64, outage domain.Outage) error {
-	err := a.client.Send(ctx, chatID, notificationText(outage))
+	return mapError(a.client.Send(ctx, chatID, notificationText(outage)))
+}
+
+// mapError translates Telegram failures into notifier domain errors.
+func mapError(err error) error {
 	var telegramError *telegram.Error
 	if errors.As(err, &telegramError) {
 		switch telegramError.StatusCode {

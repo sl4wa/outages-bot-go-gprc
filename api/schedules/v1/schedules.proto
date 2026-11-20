@@ -1,0 +1,23 @@
+syntax = "proto3";
+package schedules.v1;
+
+option go_package = "outages-bot/gen/schedules/v1;schedulesv1";
+
+service ScheduleService {
+  // Fetches the schedules currently published upstream without persistent
+  // mutations. Upstream failures return UNAVAILABLE, malformed responses
+  // DATA_LOSS, and timeouts DEADLINE_EXCEEDED. Entries without a date or update time are omitted.
+  rpc FetchSchedules(FetchSchedulesRequest) returns (FetchSchedulesResponse);
+}
+message FetchSchedulesRequest {}
+message Schedule {
+  // Day the schedule applies to, as YYYY-MM-DD.
+  string date = 1;
+  // Last provider revision in local wall time, as YYYY-MM-DDTHH:MM.
+  string updated = 2;
+  // Plain-text schedule lines, without HTML and without the title line.
+  repeated string lines = 3;
+}
+message FetchSchedulesResponse {
+  repeated Schedule schedules = 1;
+}
