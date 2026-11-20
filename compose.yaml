@@ -16,7 +16,7 @@ services:
       args: { SERVICE: outages }
     environment:
       OUTAGES_LISTEN: 0.0.0.0:50052
-      OUTAGE_API_URL: ${OUTAGE_API_URL:-https://power-api.loe.lviv.ua/api/pw_accidents?pagination=false&otg.id=28&city.id=693}
+      OUTAGE_API_URL: ${OUTAGE_API_URL:?OUTAGE_API_URL is required}
     ports: ["127.0.0.1:50052:50052"]
     stop_grace_period: 20s
 
@@ -26,7 +26,7 @@ services:
       args: { SERVICE: schedules }
     environment:
       SCHEDULES_LISTEN: 0.0.0.0:50054
-      SCHEDULE_API_URL: ${SCHEDULE_API_URL:-https://api.loe.lviv.ua/api/menus?page=1&type=photo-grafic}
+      SCHEDULE_API_URL: ${SCHEDULE_API_URL:?SCHEDULE_API_URL is required}
     ports: ["127.0.0.1:50054:50054"]
     stop_grace_period: 20s
 
@@ -40,10 +40,10 @@ services:
       SUBSCRIPTIONS_ADDR: subscriptions:50051
       OUTAGES_ADDR: outages:50052
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
-      TELEGRAM_API_URL: ${TELEGRAM_API_URL:-https://api.telegram.org}
-      NOTIFY_INTERVAL: ${NOTIFY_INTERVAL:-1m}
+      TELEGRAM_API_URL: ${TELEGRAM_API_URL:?TELEGRAM_API_URL is required}
+      NOTIFY_INTERVAL: ${NOTIFY_INTERVAL:?NOTIFY_INTERVAL is required}
       SCHEDULES_ADDR: schedules:50054
-      SCHEDULE_INTERVAL: ${SCHEDULE_INTERVAL:-15m}
+      SCHEDULE_INTERVAL: ${SCHEDULE_INTERVAL:?SCHEDULE_INTERVAL is required}
     depends_on: [subscriptions, outages, schedules]
     ports: ["127.0.0.1:50053:50053"]
     stop_grace_period: 20s
@@ -56,7 +56,7 @@ services:
     environment:
       SUBSCRIPTIONS_ADDR: subscriptions:50051
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
-      TELEGRAM_API_URL: ${TELEGRAM_API_URL:-https://api.telegram.org}
+      TELEGRAM_API_URL: ${TELEGRAM_API_URL:?TELEGRAM_API_URL is required}
     depends_on: [subscriptions]
     stop_grace_period: 20s
 

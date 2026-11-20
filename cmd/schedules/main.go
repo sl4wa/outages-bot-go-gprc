@@ -24,10 +24,18 @@ func main() {
 func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	feedAdapter := loe.NewAdapter(config.String("SCHEDULE_API_URL", "https://api.loe.lviv.ua/api/menus?page=1&type=photo-grafic"), nil)
+	feedURL, err := config.String("SCHEDULE_API_URL")
+	if err != nil {
+		return err
+	}
+	listen, err := config.String("SCHEDULES_LISTEN")
+	if err != nil {
+		return err
+	}
+	feedAdapter := loe.NewAdapter(feedURL, nil)
 	application := api.NewApplication(feedAdapter)
 	grpcAdapter := grpcadapter.NewAdapter(application)
 	server := rpc.NewServer()
 	schedulesv1.RegisterScheduleServiceServer(server, grpcAdapter)
-	return rpc.Serve(ctx, config.String("SCHEDULES_LISTEN", "127.0.0.1:50054"), server)
+	return rpc.Serve(ctx, listen, server)
 }

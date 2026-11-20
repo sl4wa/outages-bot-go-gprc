@@ -35,25 +35,45 @@ func main() {
 func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	interval, err := config.Duration("NOTIFY_INTERVAL", time.Minute)
+	interval, err := config.Duration("NOTIFY_INTERVAL")
 	if err != nil {
 		return err
 	}
-	transport, err := telegram.New(os.Getenv("TELEGRAM_BOT_TOKEN"), config.String("TELEGRAM_API_URL", "https://api.telegram.org"), nil)
+	apiURL, err := config.String("TELEGRAM_API_URL")
 	if err != nil {
 		return err
 	}
-	subConn, err := rpc.Dial(config.String("SUBSCRIPTIONS_ADDR", "127.0.0.1:50051"))
+	subscriptionsAddr, err := config.String("SUBSCRIPTIONS_ADDR")
+	if err != nil {
+		return err
+	}
+	outagesAddr, err := config.String("OUTAGES_ADDR")
+	if err != nil {
+		return err
+	}
+	schedulesAddr, err := config.String("SCHEDULES_ADDR")
+	if err != nil {
+		return err
+	}
+	notifierListen, err := config.String("NOTIFIER_LISTEN")
+	if err != nil {
+		return err
+	}
+	transport, err := telegram.New(os.Getenv("TELEGRAM_BOT_TOKEN"), apiURL, nil)
+	if err != nil {
+		return err
+	}
+	subConn, err := rpc.Dial(subscriptionsAddr)
 	if err != nil {
 		return err
 	}
 	defer subConn.Close()
-	outageConn, err := rpc.Dial(config.String("OUTAGES_ADDR", "127.0.0.1:50052"))
+	outageConn, err := rpc.Dial(outagesAddr)
 	if err != nil {
 		return err
 	}
 	defer outageConn.Close()
-	scheduleConn, err := rpc.Dial(config.String("SCHEDULES_ADDR", "127.0.0.1:50054"))
+	scheduleConn, err := rpc.Dial(schedulesAddr)
 	if err != nil {
 		return err
 	}
@@ -66,11 +86,11 @@ func run() error {
 	outageJob := scheduler.NewAdapter("outages", func(ctx context.Context) error { _, err := application.RunOnce(ctx); return err })
 	server := rpc.NewServer()
 	notificationsv1.RegisterNotificationServiceServer(server, grpcAdapter)
-	listener, err := net.Listen("tcp", config.String("NOTIFIER_LISTEN", "127.0.0.1:50053"))
+	listener, err := net.Listen("tcp", notifierListen)
 	if err != nil {
 		return err
 	}
-	scheduleInterval, err := config.Duration("SCHEDULE_INTERVAL", 15*time.Minute)
+	scheduleInterval, err := config.Duration("SCHEDULE_INTERVAL")
 	if err != nil {
 		return err
 	}

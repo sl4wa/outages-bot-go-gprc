@@ -6,16 +6,20 @@ import (
 	"time"
 )
 
-func String(key, fallback string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return fallback
-}
-func Duration(key string, fallback time.Duration) (time.Duration, error) {
+// String returns a required environment variable.
+func String(key string) (string, error) {
 	value := os.Getenv(key)
 	if value == "" {
-		return fallback, nil
+		return "", fmt.Errorf("%s is required", key)
+	}
+	return value, nil
+}
+
+// Duration returns a required nonnegative duration; 0 is allowed.
+func Duration(key string) (time.Duration, error) {
+	value, err := String(key)
+	if err != nil {
+		return 0, err
 	}
 	d, err := time.ParseDuration(value)
 	if err != nil || d < 0 {

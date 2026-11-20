@@ -100,7 +100,8 @@ grpcurl -plaintext -max-time 1800 -d '{}' \
 
 `42` is an example chat ID. `RunOnce` requires the Telegram profile and sends
 real Telegram messages to matching subscribers. The notifier also runs at startup
-and every minute; set `NOTIFY_INTERVAL=0` for manual runs only.
+and then every `NOTIFY_INTERVAL` (`1m` in `.env.example`); set it to `0` for
+manual runs only. `SCHEDULE_INTERVAL` does the same for schedule broadcasts.
 
 ## Optional local development
 

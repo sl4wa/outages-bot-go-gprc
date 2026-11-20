@@ -25,11 +25,19 @@ func main() {
 func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	transport, err := telegram.New(os.Getenv("TELEGRAM_BOT_TOKEN"), config.String("TELEGRAM_API_URL", "https://api.telegram.org"), nil)
+	apiURL, err := config.String("TELEGRAM_API_URL")
 	if err != nil {
 		return err
 	}
-	conn, err := rpc.Dial(config.String("SUBSCRIPTIONS_ADDR", "127.0.0.1:50051"))
+	subscriptionsAddr, err := config.String("SUBSCRIPTIONS_ADDR")
+	if err != nil {
+		return err
+	}
+	transport, err := telegram.New(os.Getenv("TELEGRAM_BOT_TOKEN"), apiURL, nil)
+	if err != nil {
+		return err
+	}
+	conn, err := rpc.Dial(subscriptionsAddr)
 	if err != nil {
 		return err
 	}

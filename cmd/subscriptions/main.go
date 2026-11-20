@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 
 	subscriptionsv1 "outages-bot/gen/subscriptions/v1"
@@ -26,7 +25,15 @@ func main() {
 func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	dbAdapter, err := db.NewAdapter(config.String("USERS_DIR", filepath.Join(config.String("DATA_DIR", "data"), "users")))
+	usersDir, err := config.String("USERS_DIR")
+	if err != nil {
+		return err
+	}
+	listen, err := config.String("SUBSCRIPTIONS_LISTEN")
+	if err != nil {
+		return err
+	}
+	dbAdapter, err := db.NewAdapter(usersDir)
 	if err != nil {
 		return err
 	}
@@ -38,5 +45,5 @@ func run() error {
 	grpcAdapter := grpcadapter.NewAdapter(application)
 	server := rpc.NewServer()
 	subscriptionsv1.RegisterSubscriptionServiceServer(server, grpcAdapter)
-	return rpc.Serve(ctx, config.String("SUBSCRIPTIONS_LISTEN", "127.0.0.1:50051"), server)
+	return rpc.Serve(ctx, listen, server)
 }

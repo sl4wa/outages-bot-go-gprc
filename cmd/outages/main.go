@@ -24,10 +24,18 @@ func main() {
 func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	feedAdapter := loe.NewAdapter(config.String("OUTAGE_API_URL", "https://power-api.loe.lviv.ua/api/pw_accidents?pagination=false&otg.id=28&city.id=693"), nil)
+	feedURL, err := config.String("OUTAGE_API_URL")
+	if err != nil {
+		return err
+	}
+	listen, err := config.String("OUTAGES_LISTEN")
+	if err != nil {
+		return err
+	}
+	feedAdapter := loe.NewAdapter(feedURL, nil)
 	application := api.NewApplication(feedAdapter)
 	grpcAdapter := grpcadapter.NewAdapter(application)
 	server := rpc.NewServer()
 	outagesv1.RegisterOutageServiceServer(server, grpcAdapter)
-	return rpc.Serve(ctx, config.String("OUTAGES_LISTEN", "127.0.0.1:50052"), server)
+	return rpc.Serve(ctx, listen, server)
 }
