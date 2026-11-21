@@ -44,25 +44,22 @@ func (a *Adapter) Fetch(ctx context.Context) ([]domain.Outage, error) {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		return nil, &domain.FeedError{Cause: domain.ErrFeedUnavailable, Message: "outage API request failed"}
+		return nil, domain.ErrFeedUnavailable
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		return nil, &domain.FeedError{Cause: domain.ErrFeedUnavailable, Message: fmt.Sprintf("outage API returned HTTP %d", res.StatusCode)}
+		return nil, fmt.Errorf("%w: HTTP %d", domain.ErrFeedUnavailable, res.StatusCode)
 	}
-	body, err := io.ReadAll(io.LimitReader(res.Body, maxFeedBytes+1))
+	body, err := io.ReadAll(io.LimitReader(res.Body, maxFeedBytes))
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		return nil, &domain.FeedError{Cause: domain.ErrFeedUnavailable, Message: "reading outage API response failed"}
-	}
-	if len(body) > maxFeedBytes {
-		return nil, &domain.FeedError{Cause: domain.ErrSnapshotTooLarge, Message: "outage API response exceeds 8 MiB"}
+		return nil, domain.ErrFeedUnavailable
 	}
 	rows, err := normalize(body)
 	if err != nil {
-		return nil, &domain.FeedError{Cause: domain.ErrInvalidSnapshot, Message: "outage API returned an invalid snapshot"}
+		return nil, domain.ErrInvalidSnapshot
 	}
 	return rows, nil
 }

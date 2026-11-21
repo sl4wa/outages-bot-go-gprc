@@ -43,8 +43,6 @@ func toStatus(err error) error {
 		code = codes.Unavailable
 	case errors.Is(err, domain.ErrInvalidSnapshot):
 		code = codes.DataLoss
-	case errors.Is(err, domain.ErrSnapshotTooLarge):
-		code = codes.ResourceExhausted
 	}
 	return status.Error(code, err.Error())
 }

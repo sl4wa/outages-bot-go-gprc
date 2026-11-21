@@ -3,6 +3,7 @@ package telegram
 import (
 	"context"
 	"errors"
+	"net/http"
 
 	"outages-bot/internal/notifier/application/core/domain"
 	"outages-bot/internal/notifier/ports"
@@ -30,11 +31,11 @@ func mapError(err error) error {
 	var telegramError *telegram.Error
 	if errors.As(err, &telegramError) {
 		switch telegramError.StatusCode {
-		case 400:
+		case http.StatusBadRequest:
 			return domain.ErrRejected
-		case 403:
+		case http.StatusForbidden:
 			return domain.ErrBlocked
-		case 429:
+		case http.StatusTooManyRequests:
 			return &domain.RateLimitError{RetryAfter: telegramError.RetryAfter}
 		}
 	}

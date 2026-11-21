@@ -35,7 +35,11 @@ func main() {
 func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	interval, err := config.Duration("NOTIFY_INTERVAL")
+	notifyInterval, err := config.Duration("NOTIFY_INTERVAL")
+	if err != nil {
+		return err
+	}
+	scheduleInterval, err := config.Duration("SCHEDULE_INTERVAL")
 	if err != nil {
 		return err
 	}
@@ -59,6 +63,11 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	kyiv, err := time.LoadLocation("Europe/Kyiv")
+	if err != nil {
+		return err
+	}
+
 	transport, err := telegram.New(os.Getenv("TELEGRAM_BOT_TOKEN"), apiURL, nil)
 	if err != nil {
 		return err
@@ -82,34 +91,29 @@ func run() error {
 	defer scheduleConn.Close()
 	subscriptionAdapter := subscriptions.NewAdapter(subscriptionsv1.NewSubscriptionServiceClient(subConn))
 	outageAdapter := outages.NewAdapter(outagesv1.NewOutageServiceClient(outageConn))
+	scheduleAdapter := schedulesadapter.NewAdapter(schedulesv1.NewScheduleServiceClient(scheduleConn))
 	senderAdapter := telegramadapter.NewAdapter(transport)
+
 	application := api.NewApplication(subscriptionAdapter, outageAdapter, senderAdapter)
-	grpcAdapter := grpcadapter.NewAdapter(application)
+	scheduleApplication := api.NewScheduleApplication(scheduleAdapter, subscriptionAdapter, senderAdapter, kyiv)
 	outageJob := scheduler.NewAdapter("outages", func(ctx context.Context) error { _, err := application.RunOnce(ctx); return err })
+	scheduleJob := scheduler.NewAdapter("schedules", scheduleApplication.CheckSchedules)
 	server := rpc.NewServer()
-	notificationsv1.RegisterNotificationServiceServer(server, grpcAdapter)
+	notificationsv1.RegisterNotificationServiceServer(server, grpcadapter.NewAdapter(application))
+
+	// Bind before starting the jobs, so a busy port fails before any message is sent.
 	listener, err := net.Listen("tcp", notifierListen)
 	if err != nil {
 		return err
 	}
-	scheduleInterval, err := config.Duration("SCHEDULE_INTERVAL")
-	if err != nil {
-		return err
-	}
-	kyiv, err := time.LoadLocation("Europe/Kyiv")
-	if err != nil {
-		return err
-	}
-	scheduleApplication := api.NewScheduleApplication(schedulesadapter.NewAdapter(schedulesv1.NewScheduleServiceClient(scheduleConn)), subscriptionAdapter, senderAdapter, kyiv)
-	scheduleJob := scheduler.NewAdapter("schedules", scheduleApplication.CheckSchedules)
-	loopDone := make(chan struct{})
+	outageDone := make(chan struct{})
 	scheduleDone := make(chan struct{})
-	go func() { defer close(loopDone); outageJob.Run(ctx, interval) }()
+	go func() { defer close(outageDone); outageJob.Run(ctx, notifyInterval) }()
 	go func() { defer close(scheduleDone); scheduleJob.Run(ctx, scheduleInterval) }()
 	err = rpc.ServeListener(ctx, listener, server)
 	stop()
 	// Canceled runs finish any in-flight delivery acknowledgment before exit.
-	<-loopDone
+	<-outageDone
 	<-scheduleDone
 	return err
 }

@@ -44,9 +44,6 @@ func New(token, baseURL string, client *http.Client) (*Client, error) {
 	if strings.TrimSpace(token) == "" {
 		return nil, fmt.Errorf("TELEGRAM_BOT_TOKEN is required")
 	}
-	if baseURL == "" {
-		baseURL = "https://api.telegram.org"
-	}
 	if client == nil {
 		client = &http.Client{Timeout: 75 * time.Second}
 	}
