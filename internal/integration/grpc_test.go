@@ -24,6 +24,7 @@ import (
 	outagegrpc "outages-bot/internal/outages/adapters/grpc"
 	"outages-bot/internal/outages/adapters/loe"
 	outageapi "outages-bot/internal/outages/application/core/api"
+	"outages-bot/internal/platform/rpc"
 	"outages-bot/internal/platform/telegram"
 	schedulegrpc "outages-bot/internal/schedules/adapters/grpc"
 	scheduleloe "outages-bot/internal/schedules/adapters/loe"
@@ -41,14 +42,15 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 )
 
-func serve(t *testing.T, register func(*grpc.Server)) (*grpc.ClientConn, func()) {
+func serve(t *testing.T, register func(*grpc.Server), opts ...grpc.DialOption) (*grpc.ClientConn, func()) {
 	t.Helper()
 	listener := bufconn.Listen(1 << 20)
 	server := grpc.NewServer()
 	register(server)
 	go func() { _ = server.Serve(listener) }()
-	conn, err := grpc.NewClient("passthrough:///test", grpc.WithTransportCredentials(insecure.NewCredentials()),
+	opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) { return listener.DialContext(ctx) }))
+	conn, err := grpc.NewClient("passthrough:///test", opts...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,13 +84,13 @@ type sendFunc func(context.Context, int64, string) error
 
 func (fn sendFunc) Send(ctx context.Context, id int64, text string) error { return fn(ctx, id, text) }
 
-func outageClient(t *testing.T, transport roundTripFunc) ov1.OutageServiceClient {
+func outageClient(t *testing.T, transport roundTripFunc, opts ...grpc.DialOption) ov1.OutageServiceClient {
 	t.Helper()
 	feedAdapter := loe.NewAdapter("https://outages.example.invalid/", &http.Client{Transport: transport})
 	application := outageapi.NewApplication(feedAdapter)
 	conn, _ := serve(t, func(s *grpc.Server) {
 		ov1.RegisterOutageServiceServer(s, outagegrpc.NewAdapter(application))
-	})
+	}, opts...)
 	return ov1.NewOutageServiceClient(conn)
 }
 
@@ -226,6 +228,29 @@ func TestNotificationProgressOverGRPC(t *testing.T) {
 	repeated, err := client.RunOnce(ctx, &nv1.RunOnceRequest{})
 	if err != nil || repeated.GetSent() != 0 || firstAttempts.Load() != 1 || secondAttempts.Load() != 2 {
 		t.Fatalf("unchanged outages must not resend: %v %v", repeated, err)
+	}
+}
+
+func TestNotifierRetriesUnavailableFeed(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	subs, _ := subscriptionClient(t, t.TempDir())
+	if _, err := subs.SetSubscription(ctx, &sv1.SetSubscriptionRequest{ChatId: 1, StreetId: 6458, Building: "13-А"}); err != nil {
+		t.Fatal(err)
+	}
+	row := `[{"dateEvent":"2026-11-13T09:00","datePlanIn":"2026-11-13T12:00","city":{"name":"Львів"},"street":{"id":6458,"name":"Хмельницького Б."},"buildingNames":"13-А"}]`
+	var requests atomic.Int32
+	// LOE fails once, outages returns UNAVAILABLE, and the notifier's retry succeeds.
+	feed := outageClient(t, func(*http.Request) (*http.Response, error) {
+		if requests.Add(1) == 1 {
+			return &http.Response{StatusCode: http.StatusServiceUnavailable, Body: io.NopCloser(strings.NewReader(""))}, nil
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(row))}, nil
+	}, rpc.Retry()...)
+	notifier := notificationAdapter(subs, feed, sendFunc(func(context.Context, int64, string) error { return nil }))
+	result, err := notifier.RunOnce(ctx, &nv1.RunOnceRequest{})
+	if err != nil || result.GetSent() != 1 || requests.Load() != 2 {
+		t.Fatalf("retry must recover from one UNAVAILABLE: %v %v, %d requests", result, err, requests.Load())
 	}
 }
 

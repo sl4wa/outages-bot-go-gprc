@@ -16,8 +16,9 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func Dial(target string) (*grpc.ClientConn, error) {
-	return grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+func Dial(target string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
+	opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	return grpc.NewClient(target, opts...)
 }
 
 func NewServer() *grpc.Server {

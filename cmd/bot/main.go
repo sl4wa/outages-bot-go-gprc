@@ -37,6 +37,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// No retries: SetSubscription and unguarded deletes are not safe to repeat.
 	conn, err := rpc.Dial(subscriptionsAddr)
 	if err != nil {
 		return err

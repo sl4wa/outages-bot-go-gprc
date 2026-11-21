@@ -63,17 +63,19 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	subConn, err := rpc.Dial(subscriptionsAddr)
+	// Every notifier call is safe to repeat: reads, a receipt that may be recorded
+	// twice, and deletes guarded by the subscription generation.
+	subConn, err := rpc.Dial(subscriptionsAddr, rpc.Retry()...)
 	if err != nil {
 		return err
 	}
 	defer subConn.Close()
-	outageConn, err := rpc.Dial(outagesAddr)
+	outageConn, err := rpc.Dial(outagesAddr, rpc.Retry()...)
 	if err != nil {
 		return err
 	}
 	defer outageConn.Close()
-	scheduleConn, err := rpc.Dial(schedulesAddr)
+	scheduleConn, err := rpc.Dial(schedulesAddr, rpc.Retry()...)
 	if err != nil {
 		return err
 	}

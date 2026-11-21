@@ -14,8 +14,9 @@ flowchart LR
 Outages and Schedules call the LOE APIs over HTTP. The bot and notifier call the Telegram API
 over HTTP.
 
-Demonstrates unary and server-streaming RPCs, deadlines and cancellation, status
-codes and error details, interceptors, health checks, reflection, and graceful shutdown.
+Demonstrates unary and server-streaming RPCs, deadlines and cancellation, client
+retries, status codes and error details, interceptors, health checks, reflection,
+and graceful shutdown.
 Contracts live in `api/`, generated code in `gen/`, services in `internal/`, and
 entry points in `cmd/`.
 
@@ -112,8 +113,8 @@ make build
 make test
 ```
 
-Four gRPC integration tests cover subscription RPCs, notification coordination,
-schedule broadcasts, and cancellation. They need no external services or Telegram token.
+Five gRPC integration tests cover subscription RPCs, notification coordination,
+retries, schedule broadcasts, and cancellation. They need no external services or Telegram token.
 
 Generated sources are committed. To edit contracts, install `protoc`
 (`brew install protobuf` on macOS), then run:
@@ -135,6 +136,10 @@ This installs pinned Go generators into `.cache/bin/` and regenerates `gen/`.
   (default 15m, `0` disables) and broadcasts changes to today's or tomorrow's
   schedule to every subscriber. It remembers the last schedules in memory, so the
   first poll after a start sends nothing. Subscribers who blocked the bot are removed.
+- The notifier retries calls that fail with `UNAVAILABLE`, up to three attempts
+  within the caller's deadline. All its calls are safe to repeat: reads, receipts,
+  and deletes guarded by the subscription generation. The bot does not retry,
+  because `SetSubscription` and unguarded deletes are not.
 - Bot conversations reset on restart. A crash between sending and recording a
   notification can cause a duplicate.
 - Each process runs as a single instance. gRPC uses plaintext for local development.
