@@ -41,8 +41,8 @@ Shared configuration, gRPC server lifecycle, and Telegram HTTP code live in
 
 For example, `SetSubscription` enters through the subscriptions gRPC adapter,
 calls the application through `APIPort`, and persists through `DBPort` using the
-JSON storage adapter. The notifier's gRPC handler and scheduler both invoke
-the same application, which calls subscriptions and outages through client adapters.
+JSON storage adapter. The notifier's gRPC handler and scheduled jobs invoke one
+application, which calls subscriptions, outages, and schedules through client adapters.
 
 ## Run with Docker
 

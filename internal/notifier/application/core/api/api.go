@@ -14,14 +14,21 @@ import (
 type Application struct {
 	subscriptions ports.SubscriptionPort
 	outages       ports.OutagePort
+	schedules     ports.SchedulePort
 	sender        ports.SenderPort
-	run           sync.Mutex
+	loc           *time.Location // the provider's timezone, which defines "today"
+
+	run    sync.Mutex                 // one RunOnce at a time
+	sent   map[string]domain.Schedule // day -> last broadcast schedule
+	seeded bool
 }
 
 var _ ports.APIPort = (*Application)(nil)
 
-func NewApplication(subscriptions ports.SubscriptionPort, outages ports.OutagePort, sender ports.SenderPort) *Application {
-	return &Application{subscriptions: subscriptions, outages: outages, sender: sender}
+func NewApplication(subscriptions ports.SubscriptionPort, outages ports.OutagePort, schedules ports.SchedulePort,
+	sender ports.SenderPort, loc *time.Location) *Application {
+	return &Application{subscriptions: subscriptions, outages: outages, schedules: schedules, sender: sender, loc: loc,
+		sent: map[string]domain.Schedule{}}
 }
 
 func (a *Application) RunOnce(ctx context.Context) (*domain.RunResult, error) {

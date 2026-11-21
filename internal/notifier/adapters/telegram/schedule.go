@@ -7,10 +7,7 @@ import (
 	"time"
 
 	"outages-bot/internal/notifier/application/core/domain"
-	"outages-bot/internal/notifier/ports"
 )
-
-var _ ports.ScheduleSenderPort = (*Adapter)(nil)
 
 func (a *Adapter) SendSchedules(ctx context.Context, chatID int64, today string, schedules []domain.Schedule) error {
 	return mapError(a.client.Send(ctx, chatID, scheduleText(today, schedules)))

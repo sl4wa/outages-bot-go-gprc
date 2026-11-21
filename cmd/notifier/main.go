@@ -94,10 +94,9 @@ func run() error {
 	scheduleAdapter := schedulesadapter.NewAdapter(schedulesv1.NewScheduleServiceClient(scheduleConn))
 	senderAdapter := telegramadapter.NewAdapter(transport)
 
-	application := api.NewApplication(subscriptionAdapter, outageAdapter, senderAdapter)
-	scheduleApplication := api.NewScheduleApplication(scheduleAdapter, subscriptionAdapter, senderAdapter, kyiv)
+	application := api.NewApplication(subscriptionAdapter, outageAdapter, scheduleAdapter, senderAdapter, kyiv)
 	outageJob := scheduler.NewAdapter("outages", func(ctx context.Context) error { _, err := application.RunOnce(ctx); return err })
-	scheduleJob := scheduler.NewAdapter("schedules", scheduleApplication.CheckSchedules)
+	scheduleJob := scheduler.NewAdapter("schedules", application.CheckSchedules)
 	server := rpc.NewServer()
 	notificationsv1.RegisterNotificationServiceServer(server, grpcadapter.NewAdapter(application))
 

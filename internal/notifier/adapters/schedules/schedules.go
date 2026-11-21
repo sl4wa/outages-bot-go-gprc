@@ -13,7 +13,7 @@ type Adapter struct {
 	client pb.ScheduleServiceClient
 }
 
-var _ ports.ScheduleFeedPort = (*Adapter)(nil)
+var _ ports.SchedulePort = (*Adapter)(nil)
 
 func NewAdapter(client pb.ScheduleServiceClient) *Adapter { return &Adapter{client: client} }
 

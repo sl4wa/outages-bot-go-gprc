@@ -98,7 +98,7 @@ func notificationAdapter(subscriptions sv1.SubscriptionServiceClient, outages ov
 	subscriptionAdapter := notifiersubscriptions.NewAdapter(subscriptions)
 	outageAdapter := notifieroutages.NewAdapter(outages)
 	senderAdapter := notifiertelegram.NewAdapter(sender)
-	application := notifierapi.NewApplication(subscriptionAdapter, outageAdapter, senderAdapter)
+	application := notifierapi.NewApplication(subscriptionAdapter, outageAdapter, nil, senderAdapter, time.Local)
 	return notifiergrpc.NewAdapter(application)
 }
 
@@ -322,8 +322,8 @@ func TestScheduleBroadcastOverGRPC(t *testing.T) {
 		}
 	}
 	sender := scheduleSender{sent: map[int64]string{}}
-	application := notifierapi.NewScheduleApplication(notifierschedules.NewAdapter(scv1.NewScheduleServiceClient(conn)),
-		notifiersubscriptions.NewAdapter(subs), notifiertelegram.NewAdapter(sender), time.Local)
+	application := notifierapi.NewApplication(notifiersubscriptions.NewAdapter(subs), nil,
+		notifierschedules.NewAdapter(scv1.NewScheduleServiceClient(conn)), notifiertelegram.NewAdapter(sender), time.Local)
 	if err := application.CheckSchedules(ctx); err != nil || len(sender.sent) != 0 {
 		t.Fatalf("first check must only record schedules: %v %v", sender.sent, err)
 	}

@@ -8,4 +8,5 @@ import (
 
 type APIPort interface {
 	RunOnce(context.Context) (*domain.RunResult, error)
+	CheckSchedules(context.Context) error
 }

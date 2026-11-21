@@ -8,32 +8,16 @@ import (
 	"time"
 
 	"outages-bot/internal/notifier/application/core/domain"
-	"outages-bot/internal/notifier/ports"
 )
 
-// ScheduleApplication broadcasts changes to today's and tomorrow's schedules.
+// CheckSchedules broadcasts changes to today's and tomorrow's schedules.
 // Like the C notifier, it records what it sent before delivering and does not
 // retry failed sends. State is in memory, so the first check after a start
-// only records the current schedules.
-type ScheduleApplication struct {
-	feed          ports.ScheduleFeedPort
-	subscriptions ports.SubscriptionPort
-	sender        ports.ScheduleSenderPort
-	loc           *time.Location // the provider's timezone, which defines "today"
-
-	sent   map[string]domain.Schedule // day -> last broadcast schedule
-	seeded bool
-}
-
-func NewScheduleApplication(feed ports.ScheduleFeedPort, subscriptions ports.SubscriptionPort, sender ports.ScheduleSenderPort, loc *time.Location) *ScheduleApplication {
-	return &ScheduleApplication{feed: feed, subscriptions: subscriptions, sender: sender, loc: loc,
-		sent: map[string]domain.Schedule{}}
-}
-
-func (a *ScheduleApplication) CheckSchedules(ctx context.Context) error {
+// only records the current schedules. Only the schedule job calls it.
+func (a *Application) CheckSchedules(ctx context.Context) error {
 	fetchCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
 	defer cancel()
-	schedules, err := a.feed.FetchSchedules(fetchCtx)
+	published, err := a.schedules.FetchSchedules(fetchCtx)
 	if err != nil {
 		return err
 	}
@@ -42,7 +26,7 @@ func (a *ScheduleApplication) CheckSchedules(ctx context.Context) error {
 	var selected []domain.Schedule
 	changed := false
 	for _, day := range []string{today, now.AddDate(0, 0, 1).Format(time.DateOnly)} {
-		if s := domain.LatestFor(schedules, day); s != nil {
+		if s := domain.LatestFor(published, day); s != nil {
 			selected = append(selected, *s)
 			if previous, ok := a.sent[day]; !ok || !slices.Equal(previous.Lines, s.Lines) {
 				changed = true
@@ -68,7 +52,7 @@ func (a *ScheduleApplication) CheckSchedules(ctx context.Context) error {
 }
 
 // broadcast tries every subscriber once; failures are logged, not retried.
-func (a *ScheduleApplication) broadcast(ctx context.Context, today string, schedules []domain.Schedule) error {
+func (a *Application) broadcast(ctx context.Context, today string, schedules []domain.Schedule) error {
 	listCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	subscribers, err := a.subscriptions.List(listCtx)
 	cancel()
