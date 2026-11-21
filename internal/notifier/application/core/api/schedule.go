@@ -69,14 +69,20 @@ func (a *ScheduleApplication) CheckSchedules(ctx context.Context) error {
 
 // broadcast tries every subscriber once; failures are logged, not retried.
 func (a *ScheduleApplication) broadcast(ctx context.Context, today string, schedules []domain.Schedule) error {
-	subscribers, err := a.subscriptions.List(ctx)
+	listCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	subscribers, err := a.subscriptions.List(listCtx)
+	cancel()
 	if err != nil {
 		return err
 	}
 	for _, subscriber := range subscribers {
-		err := a.sender.SendSchedules(ctx, subscriber.ChatID, today, schedules)
+		sendCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		err := a.sender.SendSchedules(sendCtx, subscriber.ChatID, today, schedules)
+		cancel()
 		if errors.Is(err, domain.ErrBlocked) {
-			_, err = a.subscriptions.Delete(ctx, subscriber)
+			deleteCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			_, err = a.subscriptions.Delete(deleteCtx, subscriber)
+			cancel()
 		}
 		if err != nil {
 			if ctx.Err() != nil {
